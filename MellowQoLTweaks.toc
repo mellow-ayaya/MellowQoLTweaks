@@ -1,0 +1,22 @@
+## Interface: 120001
+## Title: Mellow |cFF00FFFFQoL|r Tweaks
+## Author: mellow_ayaya
+## Version: 1.0.0
+## IconTexture: Interface\AddOns\MellowQoLTweaks\icon.tga
+## Notes: A collection of quality-of-life tweaks: AFK auto-mute, UI scale lock, and cast fail/interrupt sound alerts.
+## SavedVariables: MellowQoLTweaksDB
+
+## X-License: GNU General Public License version 3 (GPLv3)
+## X-Curse-Project-ID:
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
+Libs\AceGUI-3.0\AceGUI-3.0.xml
+Libs\AceConfig-3.0\AceConfig-3.0.xml
+
+Core.lua
+Modules\AutoMute.lua
+Modules\UIScale.lua
+Modules\SoundAlerts.lua
+Options.lua
