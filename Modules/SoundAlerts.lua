@@ -441,19 +441,19 @@ local SPEC_RESOURCE_MAP = {
 	[270] = { primary = "Mana" },                        -- Mistweaver
 	[269] = { primary = "Energy", secondary = "Chi" },   -- Windwalker
 	-- Paladin
-	[65] = { primary = "Mana" },                         -- Holy
+	[65] = { primary = "Mana", secondary = "Holy" },     -- Holy
 	[66] = { primary = "Mana", secondary = "Holy" },     -- Protection
 	[70] = { primary = "Mana", secondary = "Holy" },     -- Retribution
 	-- Priest
 	[256] = { primary = "Mana" },                        -- Discipline
 	[257] = { primary = "Mana" },                        -- Holy
-	[258] = { primary = "Mana" },                        -- Shadow (Insanity: no file, Mana is secondary)
+	[258] = { primary = "INS", secondary = "Mana" },     -- Shadow
 	-- Rogue
 	[259] = { primary = "Energy", secondary = "CP" },    -- Assassination
 	[260] = { primary = "Energy", secondary = "CP" },    -- Outlaw
 	[261] = { primary = "Energy", secondary = "CP" },    -- Subtlety
-	-- Shaman (Maelstrom: no file; Elemental secondary is Mana)
-	[262] = { primary = "Mana" },                        -- Elemental
+	-- Shaman
+	[262] = { primary = "MS", secondary = "Mana" },      -- Elemental
 	[263] = { primary = "Mana" },                        -- Enhancement
 	[264] = { primary = "Mana" },                        -- Restoration
 	-- Warlock

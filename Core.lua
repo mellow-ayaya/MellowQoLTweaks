@@ -68,8 +68,8 @@ local MQT_SOUNDS = {
 -- F1 = female voice 1, M1 = male voice 1.
 local VOICE_LABELS = {
 	"AC", "AP", "Cancelled", "CD", "Chi", "CP", "Energy", "Essence",
-	"Focus", "Fury", "GCD", "Holy", "Invalid", "LoS", "Mana", "OOM",
-	"Points", "Rage", "Range", "RP", "Runes", "Shards", "Stop", "Target", "Turn",
+	"Focus", "Fury", "GCD", "Holy", "INS", "Invalid", "LoS", "Mana", "MS", "OOM",
+	"Points", "Primary", "Rage", "Range", "RP", "Runes", "Secondary", "Shards", "Stop", "Target", "Turn",
 }
 local MQT_VOICE_SOUNDS = {}
 for _, label in ipairs(VOICE_LABELS) do
