@@ -1,4 +1,4 @@
-package-as: Mellow QoL Tweaks
+package-as: MellowQoLTweaks
 manual-changelog: CHANGELOG.md
 ignore:
   - README.md
