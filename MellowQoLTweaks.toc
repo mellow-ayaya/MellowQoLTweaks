@@ -7,7 +7,7 @@
 ## SavedVariables: MellowQoLTweaksDB
 
 ## X-License: GNU General Public License version 3 (GPLv3)
-## X-Curse-Project-ID:
+## X-Curse-Project-ID: 1509401
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
