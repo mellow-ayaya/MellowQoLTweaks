@@ -1184,7 +1184,7 @@ local function BuildOptionsTable()
 							desc = {
 								type = "description",
 								name =
-								"Persistently ets the UI Scale to the specified value, even if you change the WoW window dimeansions, the scaling will reapply.",
+								"Persistently ets the UI Scale to the specified value, even if you change the WoW window dimeansions, the scaling will reapply.\nFor 1080p, I recommend using 0.7111.\nFor 1040p, I recommend using 0.5333.",
 								order = 1,
 								fontSize = "medium",
 							},
