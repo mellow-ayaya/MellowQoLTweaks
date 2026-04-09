@@ -3,7 +3,7 @@
 ## Author: mellow_ayaya
 ## Version: 1.0.0
 ## IconTexture: Interface\AddOns\MellowQoLTweaks\icon.tga
-## Notes: A collection of quality-of-life tweaks: AFK auto-mute, UI scale lock, and cast fail/interrupt sound alerts.
+## Notes: A collection of QoL tweaks for WoW: AFK auto-mute, UI scale lock, and cast fail/interrupt sound alerts.
 ## SavedVariables: MellowQoLTweaksDB
 
 ## X-License: GNU General Public License version 3 (GPLv3)
