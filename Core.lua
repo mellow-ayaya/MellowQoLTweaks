@@ -323,6 +323,7 @@ local function RegisterMedia()
 end
 -- Register bundled statusbar textures for use in other addons (e.g. Better Timeline).
 LSM:Register("background", "MQT: Middle Fade", "Interface\\AddOns\\MellowQoLTweaks\\Textures\\MiddleFade.tga")
+LSM:Register("background", "MQT: Middle Fade V2", "Interface\\AddOns\\MellowQoLTweaks\\Textures\\MiddleFadeV2.tga")
 NS.RegisterMedia = RegisterMedia
 -- Remove a sound from every MQT sound pool in the DB.
 -- Called immediately when a sound is disabled in the
