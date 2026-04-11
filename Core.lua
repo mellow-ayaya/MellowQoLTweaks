@@ -249,6 +249,7 @@ local DEFAULTS = {
 			outOfCombat = false,
 			mounted = false,
 			inVehicle = true,
+			overrideBar = true,
 		},
 	},
 	floatingText = {

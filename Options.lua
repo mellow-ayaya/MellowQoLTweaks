@@ -800,6 +800,17 @@ local function BuildOptionsTable()
 										set = function(_, v) db.soundAlerts.suppressConditions.inVehicle = v end,
 										disabled = function() return not db.soundAlerts.enabled end,
 									},
+									overrideBar = {
+										type = "toggle",
+										name = "Override Bar (Minigames)",
+										desc =
+										"Suppress alerts during minigames and scripted scenario controls that replace your action bar (e.g. Delve puzzles).",
+										order = 7,
+										width = 1,
+										get = function() return db.soundAlerts.suppressConditions.overrideBar end,
+										set = function(_, v) db.soundAlerts.suppressConditions.overrideBar = v end,
+										disabled = function() return not db.soundAlerts.enabled end,
+									},
 								},
 							},
 							smartResourceGroup = {
