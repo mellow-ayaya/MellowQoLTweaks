@@ -413,9 +413,12 @@ local ERROR_CORRELATION_WINDOW = 0.15
 -- nil means no matching voice file exists for that resource.
 local SPEC_RESOURCE_MAP = {
 	-- Death Knight
-	[250] = { primary = "Runes", secondary = "RP" },     -- Blood
-	[251] = { primary = "Runes", secondary = "RP" },     -- Frost
-	[252] = { primary = "Runes", secondary = "RP" },     -- Unholy
+	-- Runic Power shortages → resourcePrimary; Rune shortages → resourceSecondary
+	-- (matches POWER_TYPE_TO_CATEGORY type 6 / type 5, and FAIL_REASON_GLOBALS).
+	-- primary voice plays on resourcePrimary → RP; secondary on resourceSecondary → Runes.
+	[250] = { primary = "RP", secondary = "Runes" },     -- Blood
+	[251] = { primary = "RP", secondary = "Runes" },     -- Frost
+	[252] = { primary = "RP", secondary = "Runes" },     -- Unholy
 	-- Demon Hunter (Vengeance uses Pain; no Pain file, treated as Fury)
 	[577] = { primary = "Fury" },                        -- Havoc
 	[581] = { primary = "Fury" },                        -- Vengeance
@@ -607,6 +610,52 @@ local POWER_TYPE_TO_CATEGORY = {
 	[17] = "resourcePrimary",  -- Fury
 	[18] = "resourcePrimary",  -- Pain
 }
+-- Resource info for the heuristic fallback.
+-- C_Secrets.ShouldUnitPowerBeSecret gates primary resource checks at runtime.
+-- If Blizzard un-secrets a resource in a future patch the check automatically
+-- becomes active without any code change.
+--
+-- runeCheck = true: use GetRuneCooldown(1-6) counting ready runes instead of
+--   UnitPower("player", 5), which always returns 6 (total rune count regardless
+--   of availability). The spell's rune cost is fetched via
+--   C_Spell.GetSpellPowerCost (AllowedWhenTainted) so the check correctly
+--   fires for 2-rune spells with 1 rune ready as well as 0-rune situations.
+--
+-- threshold: for non-rune UnitPower entries: < 1 = fraction of max; >= 1 = absolute.
+-- All powerType values are hardcoded integer literals — no taint risk.
+local RESOURCE_LABEL_INFO = {
+	-- Primary resources (secret in 12.0 combat, gated by C_Secrets check)
+	Mana = { powerType = 0, threshold = 0.01 },
+	Rage = { powerType = 1, threshold = 10 },
+	Focus = { powerType = 2, threshold = 10 },
+	Energy = { powerType = 3, threshold = 20 },
+	RP = { powerType = 6, threshold = 20 },
+	MS = { powerType = 11, threshold = 10 },
+	INS = { powerType = 13, threshold = 10 },
+	Fury = { powerType = 17, threshold = 10 },
+	Pain = { powerType = 18, threshold = 10 },
+	-- Secondary resources (non-secret in 12.0)
+	CP = { powerType = 4, threshold = 1 },
+	Runes = { powerType = 5, threshold = 1, runeCheck = true },
+	Shards = { powerType = 7, threshold = 1 },
+	AP = { powerType = 8, threshold = 1 },
+	Holy = { powerType = 9, threshold = 1 },
+	Chi = { powerType = 12, threshold = 1 },
+	AC = { powerType = 16, threshold = 1 },
+}
+-- Count currently usable runes via GetRuneCooldown boolean returns.
+-- Only runeReady (boolean) is used; start/duration are discarded so
+-- secret number restrictions on cooldown values do not apply.
+local function CountReadyRunes()
+	local n = 0
+	for i = 1, 6 do
+		local _, _, runeReady = GetRuneCooldown(i)
+		if runeReady then n = n + 1 end
+	end
+
+	return n
+end
+
 local function CheckCCFallback()
 	if not C_LossOfControl or not C_LossOfControl.GetActiveLossOfControlDataCount then return nil end
 
@@ -617,23 +666,80 @@ local function CheckCCFallback()
 end
 
 local function CheckResourceFallback(spellID)
-	if not spellID then return nil end
+	local specID = tonumber(NS.specKey)
+	if not specID then return nil end
 
-	local ok, costs = pcall(C_Spell.GetSpellPowerCost, spellID)
-	if not ok or not costs then return nil end
+	local specMap = SPEC_RESOURCE_MAP[specID]
+	if not specMap then return nil end
 
-	for _, cost in ipairs(costs) do
-		if cost.cost and cost.cost > 0 then
-			local canAfford, affordable = pcall(function()
-				return UnitPower("player", cost.type) >= cost.cost
-			end)
-			if not canAfford or not affordable then
-				return POWER_TYPE_TO_CATEGORY[cost.type] or "resourcePrimary"
+	local dbg = NS.db and NS.db.soundAlerts.debugMode
+	local function checkSlot(label, category)
+		if not label then return nil end
+
+		local info = RESOURCE_LABEL_INFO[label]
+		if not info then return nil end
+
+		if info.runeCheck then
+			local okR, ready = pcall(CountReadyRunes)
+			if not okR then return nil end
+
+			-- C_Spell.GetSpellPowerCost is AllowedWhenTainted so the call is
+			-- safe.  We only read cost.type and cost.minCost; field access is
+			-- wrapped in pcall in case any values carry residual taint.
+			local minRuneCost = 1 -- conservative fallback
+			if spellID then
+				local okC, costs = pcall(C_Spell.GetSpellPowerCost, spellID)
+				if okC and costs then
+					for _, cost in ipairs(costs) do
+						pcall(function()
+							if cost.type == 5 then
+								minRuneCost = cost.minCost or cost.cost or 1
+							end
+						end)
+					end
+				end
 			end
+
+			if dbg then
+				NS.Msg("|cFFFF8800[debug-res]|r Runes ready=" .. tostring(ready)
+					.. " need=" .. tostring(minRuneCost))
+			end
+
+			return ready < minRuneCost and category or nil
 		end
+
+		-- Non-rune resources: gate on C_Secrets before any numeric comparison.
+		local secretOk, isSecret = pcall(C_Secrets.ShouldUnitPowerBeSecret, "player", info.powerType)
+		if not secretOk or isSecret then
+			if dbg then
+				NS.Msg("|cFFFF8800[debug-res]|r " .. label .. " type=" .. info.powerType
+					.. " secret=" .. tostring(isSecret) .. " (skipped)")
+			end
+
+			return nil
+		end
+
+		local okP, power = pcall(UnitPower, "player", info.powerType)
+		if not okP then return nil end
+
+		local limit = info.threshold
+		if limit < 1 then
+			local okM, maxP = pcall(UnitPowerMax, "player", info.powerType)
+			if not okM or not maxP or maxP == 0 then return nil end
+
+			limit = maxP * info.threshold
+		end
+
+		if dbg then
+			NS.Msg("|cFFFF8800[debug-res]|r " .. label .. " type=" .. info.powerType
+				.. " power=" .. tostring(power) .. " limit=" .. tostring(limit))
+		end
+
+		return power < limit and category or nil
 	end
 
-	return nil
+	return checkSlot(specMap.primary, "resourcePrimary")
+			or checkSlot(specMap.secondary, "resourceSecondary")
 end
 
 local GCD_SPELL_ID = 61304
@@ -708,27 +814,50 @@ end
 -- NOTE: Facing and Line of Sight have no read API in combat.
 -- UnitPosition() only works in instances. These remain "other".
 -- Chain: most-definitive first, weakest last.
--- CD/GCD before resource: a spell on cooldown fails for that
--- reason even if you also lack the resource to cast it.
+-- CheckCooldownFallback is intentionally omitted: GetSpellCooldown returns
+-- secret duration values in 12.0 that cannot be compared numerically, and
+-- its pcall safety net always falls back to "cooldown", misclassifying
+-- range/target failures that happen while GCD is active.
+-- Cooldown failures in the heuristic path resolve to "other".
 local function RunFallbackChain(spellID)
-	return CheckCCFallback()
-			or CheckCooldownFallback(spellID)
-			or CheckResourceFallback(spellID)
-			or CheckNoTargetFallback()
-			or CheckInvalidTargetFallback()
-			or CheckRangeFallback(spellID)
-			or CheckMovingFallback()
+	local dbg = NS.db and NS.db.soundAlerts.debugMode
+	local cc = CheckCCFallback()
+	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r cc=" .. tostring(cc)) end
+
+	if cc then return cc end
+
+	local res = CheckResourceFallback(spellID)
+	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r res=" .. tostring(res)) end
+
+	if res then return res end
+
+	local nt = CheckNoTargetFallback()
+	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r noTarget=" .. tostring(nt)) end
+
+	if nt then return nt end
+
+	local it = CheckInvalidTargetFallback()
+	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r invalidTarget=" .. tostring(it)) end
+
+	if it then return it end
+
+	local rng = CheckRangeFallback(spellID)
+	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r range=" .. tostring(rng)) end
+
+	if rng then return rng end
+
+	local mv = CheckMovingFallback()
+	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r moving=" .. tostring(mv)) end
+
+	return mv
 end
 
 local function ResolveFailCategory(errorMessage, errorTime, spellID)
-	-- Try error message correlation first
+	local dbg = NS.db and NS.db.soundAlerts.debugMode
 	local category = nil
 	local hadCorrelatedError = false
-	if (GetTime() - errorTime) <= ERROR_CORRELATION_WINDOW then
-		-- An error arrived within the window, even if we can't map it.
-		-- This flag prevents the heuristic fallbacks from running on
-		-- unmapped messages (e.g. "You can't do that while polymorphed"),
-		-- which would otherwise guess from game state and misclassify.
+	local timeSinceError = GetTime() - errorTime
+	if timeSinceError <= ERROR_CORRELATION_WINDOW then
 		hadCorrelatedError = (errorMessage ~= nil)
 		category = errorMessage and MESSAGE_TO_CATEGORY[errorMessage]
 		if not category and POWER_DISPLAY_PREFIX and errorMessage
@@ -737,20 +866,20 @@ local function ResolveFailCategory(errorMessage, errorTime, spellID)
 		end
 	end
 
-	-- Fallback heuristics only when no error message correlated at all.
-	-- Channeled spells fire UNIT_SPELLCAST_FAILED but NOT UI_ERROR_MESSAGE
-	-- on many failure types, so heuristics are their only classification path.
-	-- If we got a message but couldn't map it, the correct outcome is "other" —
-	-- not whatever game state happens to look like right now.
+	if dbg then
+		NS.Msg("|cFFFF8800[debug-resolve]|r timeSinceError=" .. string.format("%.3f", timeSinceError)
+			.. " hadCorrelated=" .. tostring(hadCorrelatedError)
+			.. " msgCategory=" .. tostring(category)
+			.. " msg=" .. tostring(errorMessage))
+	end
+
 	if not category and not hadCorrelatedError then
 		category = RunFallbackChain(spellID)
+		if dbg then NS.Msg("|cFFFF8800[debug-resolve]|r fallback result=" .. tostring(category)) end
 	end
 
-	-- Refine ambiguous cooldown/GCD from error path
-	if (category == "cooldown" or category == "gcd") and spellID then
-		category = ClassifySpellFailCooldown(spellID)
-	end
-
+	-- CD/GCD refinement removed: GetSpellCooldown duration is secret in 12.0.
+	-- The error-message path still maps ERR_SPELL_COOLDOWN etc. correctly.
 	return category
 end
 
@@ -914,24 +1043,39 @@ failFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID, arg4)
 		-- previous spell leaking into this fail event.
 		local snapshotErrorTime = lastErrorTime
 		C_Timer.After(0, function()
-			if capturedGUID == lastHandledCastGUID then return end
+			local dbg = NS.db and NS.db.soundAlerts.debugMode
+			if capturedGUID == lastHandledCastGUID then
+				if dbg then NS.Msg("|cFFFF8800[debug-defer]|r skipped: GUID already handled") end
 
-			-- Re-check suppression here: a spell may have succeeded
-			-- in the same frame as the fail (e.g. a dual-purpose macro
-			-- where one branch fails and another succeeds simultaneously).
-			if IsSuppressedByRecentCast() then return end
+				return
+			end
+
+			if IsSuppressedByRecentCast() then
+				if dbg then NS.Msg("|cFFFF8800[debug-defer]|r skipped: post-cast suppression") end
+
+				return
+			end
 
 			local capturedErrorMsg = nil
 			local capturedErrorTime = 0
 			if lastErrorTime ~= snapshotErrorTime then
-				-- A new UI_ERROR_MESSAGE arrived during the deferral
 				capturedErrorMsg = lastErrorMessage
 				capturedErrorTime = lastErrorTime
 			end
 
+			if dbg then
+				NS.Msg("|cFFFF8800[debug-defer]|r spell=" .. tostring(capturedSpellID)
+					.. " errorChanged=" .. tostring(lastErrorTime ~= snapshotErrorTime)
+					.. " msg=" .. tostring(capturedErrorMsg))
+			end
+
 			local category = ResolveFailCategory(capturedErrorMsg, capturedErrorTime, capturedSpellID) or "other"
 			local fr = NS.db.soundAlerts.failReasons
-			if fr and not fr[category] then return end
+			if fr and not fr[category] then
+				if dbg then NS.Msg("|cFFFF8800[debug-defer]|r skipped: failReason disabled for cat=" .. tostring(category)) end
+
+				return
+			end
 
 			lastDirectAlertTime = lastErrorTime
 			lastHandledCastGUID = capturedGUID
