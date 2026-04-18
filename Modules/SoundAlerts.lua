@@ -404,6 +404,7 @@ local lastAnyFailAlertTime = 0   -- GetTime() of last fail alert from ANY path
 local lastAlertTimes = {}
 local DIRECT_DEDUP_WINDOW = 0.25 -- suppress direct alerts for this long after a fail-handler alert
 local ERROR_CORRELATION_WINDOW = 0.15
+local cachedGCDDuration = 1.0    -- updated when readable; 1s covers base GCD conservatively
 -- ============================================================
 -- Spec → resource voice mapping
 -- ============================================================
@@ -547,6 +548,7 @@ auxFrame:SetScript("OnEvent", function(_, event, arg1, arg2)
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		if arg1 == "player" then
 			lastSuccessTime = GetTime()
+			RefreshGCDDuration()
 		end
 	elseif event == "UI_ERROR_MESSAGE" or event == "UI_INFO_MESSAGE" then
 		lastErrorMessage = arg2
@@ -743,6 +745,21 @@ local function CheckResourceFallback(spellID)
 end
 
 local GCD_SPELL_ID = 61304
+-- Update the cached GCD duration whenever the value is readable (not secret).
+-- Called on UNIT_SPELLCAST_SUCCEEDED so the cache stays current with haste.
+-- Falls back to the existing cached value (default 1.0s) when restricted.
+local function RefreshGCDDuration()
+	local ok, gcdInfo = pcall(C_Spell.GetSpellCooldown, GCD_SPELL_ID)
+	if ok and gcdInfo and gcdInfo.duration and gcdInfo.duration > 0 then
+		cachedGCDDuration = gcdInfo.duration
+	end
+end
+
+-- Returns true if a successful cast happened recently enough that the
+-- current failure is more likely GCD than a real cooldown.
+local function IsLikelyGCD()
+	return (GetTime() - lastSuccessTime) < cachedGCDDuration
+end
 local function ClassifySpellFailCooldown(spellID)
 	local spellCD = C_Spell.GetSpellCooldown(spellID)
 	if not spellCD then return "gcd" end
@@ -767,14 +784,22 @@ local function CheckCooldownFallback(spellID)
 	local ok, cdInfo = pcall(C_Spell.GetSpellCooldown, spellID)
 	if not ok or not cdInfo then return nil end
 
+	-- isOnGCD is NeverSecret but stale outside SPELL_UPDATE_COOLDOWN; fast path only.
 	if cdInfo.isOnGCD then return "gcd" end
 
-	local hasCD, cdCheck = pcall(function()
+	-- Check if Blizzard is restricting this spell's cooldown info.
+	-- If secret, a cooldown is active. Use recent-cast heuristic to distinguish
+	-- GCD (spell cast within the cached GCD window) from a real cooldown.
+	local okSec, isSecret = pcall(C_Secrets.ShouldSpellCooldownBeSecret, spellID)
+	if okSec and isSecret then
+		return IsLikelyGCD() and "gcd" or "cooldown"
+	end
+
+	-- Not secret: duration is readable, classify normally.
+	local okD, hasCD = pcall(function()
 		return cdInfo.duration and cdInfo.duration > 0
 	end)
-	if not hasCD then return "cooldown" end
-
-	if not cdCheck then return nil end
+	if not okD or not hasCD then return nil end
 
 	return ClassifySpellFailCooldown(spellID)
 end
@@ -814,17 +839,20 @@ end
 -- NOTE: Facing and Line of Sight have no read API in combat.
 -- UnitPosition() only works in instances. These remain "other".
 -- Chain: most-definitive first, weakest last.
--- CheckCooldownFallback is intentionally omitted: GetSpellCooldown returns
--- secret duration values in 12.0 that cannot be compared numerically, and
--- its pcall safety net always falls back to "cooldown", misclassifying
--- range/target failures that happen while GCD is active.
--- Cooldown failures in the heuristic path resolve to "other".
+-- CheckCooldownFallback uses C_Secrets.ShouldSpellCooldownBeSecret to detect
+-- an active cooldown without reading the secret duration value. isOnGCD is
+-- NeverSecret so GCD vs real CD is always distinguishable.
 local function RunFallbackChain(spellID)
 	local dbg = NS.db and NS.db.soundAlerts.debugMode
 	local cc = CheckCCFallback()
 	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r cc=" .. tostring(cc)) end
 
 	if cc then return cc end
+
+	local cd = CheckCooldownFallback(spellID)
+	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r cd=" .. tostring(cd)) end
+
+	if cd then return cd end
 
 	local res = CheckResourceFallback(spellID)
 	if dbg then NS.Msg("|cFFFF8800[debug-chain]|r res=" .. tostring(res)) end
@@ -878,8 +906,14 @@ local function ResolveFailCategory(errorMessage, errorTime, spellID)
 		if dbg then NS.Msg("|cFFFF8800[debug-resolve]|r fallback result=" .. tostring(category)) end
 	end
 
-	-- CD/GCD refinement removed: GetSpellCooldown duration is secret in 12.0.
-	-- The error-message path still maps ERR_SPELL_COOLDOWN etc. correctly.
+	-- Refine "cooldown" → "gcd" when a successful cast happened within the
+	-- cached GCD window. Covers both the message path (SPELL_FAILED_NOT_READY
+	-- maps to cooldown but can fire on GCD) and the fallback path.
+	if category == "cooldown" and IsLikelyGCD() then
+		category = "gcd"
+		if dbg then NS.Msg("|cFFFF8800[debug-resolve]|r refined cooldown→gcd (recent cast)") end
+	end
+
 	return category
 end
 
