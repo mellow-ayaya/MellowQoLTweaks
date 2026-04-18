@@ -68,7 +68,7 @@ local MQT_SOUNDS = {
 -- F1 = female voice 1, M1 = male voice 1.
 local VOICE_LABELS = {
 	"AC", "AP", "Cancelled", "CD", "Chi", "CP", "Energy", "Essence",
-	"Focus", "Fury", "GCD", "Holy", "INS", "Invalid", "LoS", "Mana", "MS", "OOM",
+	"Failed", "Focus", "Fury", "GCD", "Holy", "INS", "Invalid", "LoS", "Mana", "MS", "OOM",
 	"Points", "Primary", "Rage", "Range", "RP", "Runes", "Secondary", "Shards", "Stop", "Target", "Turn",
 }
 local MQT_VOICE_SOUNDS = {}
@@ -189,6 +189,7 @@ local function BuildDefaultPools()
 		fail_los = { ["MQT: F1: LoS"] = true },
 		fail_other = {},
 		interruptSounds = PoolFromPack("error2x"),
+		prioritySounds = { ["MQT: F1: Failed"] = true },
 	}
 end
 
@@ -242,6 +243,12 @@ local DEFAULTS = {
 		smartResource = {
 			enabled = true,
 			gender = "F1",
+		},
+		-- Priority spell whitelist
+		prioritySpells = {
+			enabled = true,
+			channel = "Master",
+			spells = {},
 		},
 		-- Alert condition suppression
 		suppressConditions = {
@@ -339,6 +346,8 @@ function NS.RemoveSoundFromAllPools(soundName)
 	end
 
 	if sa.interruptSounds then sa.interruptSounds[soundName] = nil end
+
+	if sa.prioritySounds then sa.prioritySounds[soundName] = nil end
 end
 
 local function InitDB()
@@ -355,6 +364,10 @@ local function InitDB()
 
 	if not sa.interruptSounds then
 		sa.interruptSounds = DEFAULT_POOL_FOR.interruptSounds or {}
+	end
+
+	if not sa.prioritySounds then
+		sa.prioritySounds = DEFAULT_POOL_FOR.prioritySounds or {}
 	end
 
 	db = MellowQoLTweaksDB

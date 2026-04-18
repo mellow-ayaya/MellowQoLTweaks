@@ -522,7 +522,8 @@ local function IsConditionSuppressed()
 	return false
 end
 
-local FireAlert -- forward declaration; defined below
+local FireAlert          -- forward declaration; defined below
+local RefreshGCDDuration -- forward declaration; called in auxFrame before definition
 local function IsSuppressedByRecentCast()
 	local db = NS.db
 	if not db.soundAlerts.suppressionEnabled then return false end
@@ -748,13 +749,12 @@ local GCD_SPELL_ID = 61304
 -- Update the cached GCD duration whenever the value is readable (not secret).
 -- Called on UNIT_SPELLCAST_SUCCEEDED so the cache stays current with haste.
 -- Falls back to the existing cached value (default 1.0s) when restricted.
-local function RefreshGCDDuration()
+RefreshGCDDuration = function()
 	local ok, gcdInfo = pcall(C_Spell.GetSpellCooldown, GCD_SPELL_ID)
 	if ok and gcdInfo and gcdInfo.duration and gcdInfo.duration > 0 then
 		cachedGCDDuration = gcdInfo.duration
 	end
 end
-
 -- Returns true if a successful cast happened recently enough that the
 -- current failure is more likely GCD than a real cooldown.
 local function IsLikelyGCD()
@@ -991,6 +991,32 @@ FireAlert = function(isFail, spellID, category, errorMsg)
 	end
 end
 -- ============================================================
+-- Priority spell alert dispatch
+-- ============================================================
+-- Fires unconditionally for spells in the priority whitelist.
+-- Bypasses condition suppression, post-cast suppression, throttle,
+-- fail reason filtering, and the ignore list.
+local function FirePriorityAlert(spellID)
+	local db = NS.db
+	local ps = db.soundAlerts.prioritySpells
+	NS.PlayRandomFromPool("prioritySounds", ps.channel or "Master")
+	if db.soundAlerts.debugMode then
+		local spellName = spellID and C_Spell.GetSpellName(spellID)
+		local spellPart = spellName
+				and ("|cFFFFD100" .. spellName .. "|r |cFF888888(" .. spellID .. ")|r")
+				or "|cFF888888(no spell ID)|r"
+		NS.Msg("|cFFFF8800[debug]|r PRIORITY fail " .. spellPart)
+	end
+
+	if spellID then
+		local ft = db.floatingText
+		if ft.enabled and ft.failEnabled then
+			local spellName = C_Spell.GetSpellName(spellID)
+			if spellName then ShowSpellFloatText(spellName) end
+		end
+	end
+end
+-- ============================================================
 -- Spell fail/interrupt event handler
 -- ============================================================
 local lastHandledCastGUID = nil
@@ -1044,14 +1070,26 @@ failFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID, arg4)
 		if arg4 then return end
 	end
 
-	if isFail and not db.soundAlerts.failEnabled then return end
+	-- Determine if this is a priority spell (fail events only).
+	-- Priority spells bypass failEnabled, the ignore list, post-cast
+	-- suppression, throttle, condition suppression, and fail reason
+	-- filtering. The module-level enabled toggle is the only kill switch.
+	local isPriority = false
+	if isFail and spellID then
+		local ps = db.soundAlerts.prioritySpells
+		isPriority = ps and ps.enabled and ps.spells[spellID] == true
+	end
 
-	if not isFail and not db.soundAlerts.interruptEnabled then return end
+	if not isPriority then
+		if isFail and not db.soundAlerts.failEnabled then return end
 
-	if spellID and NS.IsIgnored(spellID) then return end
+		if not isFail and not db.soundAlerts.interruptEnabled then return end
 
-	-- Post-cast suppression (fails only)
-	if isFail and IsSuppressedByRecentCast() then return end
+		if spellID and NS.IsIgnored(spellID) then return end
+
+		-- Post-cast suppression (fails only)
+		if isFail and IsSuppressedByRecentCast() then return end
+	end
 
 	if isFail then
 		-- Stamp both UI_ERROR_MESSAGE dedup guards immediately, before
@@ -1063,6 +1101,10 @@ failFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID, arg4)
 		-- in place regardless of which defer runs first.
 		-- GetTime() is constant within a frame, so it matches capturedTime
 		-- captured by the UI_ERROR_MESSAGE handler in the same frame.
+		-- Note: for priority spells these stamps also prevent the
+		-- UI_ERROR_MESSAGE auxFrame path from firing a second alert,
+		-- since priority spells bypass failEnabled but the dedup guards
+		-- are unconditional.  No double-firing occurs.
 		lastDirectAlertTime = GetTime()
 		lastAnyFailAlertTime = GetTime()
 		-- Defer fail processing by one frame so UI_ERROR_MESSAGE
@@ -1070,6 +1112,7 @@ failFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID, arg4)
 		-- yet and fail reason filtering can't match a category.
 		local capturedGUID = castGUID
 		local capturedSpellID = spellID
+		local capturedIsPriority = isPriority
 		-- Snapshot the error state NOW, before deferring.
 		-- In the deferred handler we only accept the error if the
 		-- timestamp changed — meaning a NEW error arrived during
@@ -1081,6 +1124,14 @@ failFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID, arg4)
 			if capturedGUID == lastHandledCastGUID then
 				if dbg then NS.Msg("|cFFFF8800[debug-defer]|r skipped: GUID already handled") end
 
+				return
+			end
+
+			-- Priority path: fire immediately, skipping all further checks.
+			if capturedIsPriority then
+				lastHandledCastGUID = capturedGUID
+				lastAnyFailAlertTime = GetTime()
+				FirePriorityAlert(capturedSpellID)
 				return
 			end
 

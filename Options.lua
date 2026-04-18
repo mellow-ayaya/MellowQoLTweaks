@@ -2,6 +2,7 @@ local ADDON_NAME, NS = ...
 local LSM = LibStub("LibSharedMedia-3.0")
 local pendingSpellID = ""
 local pendingScope = "account"
+local pendingPrioritySpellID = ""
 -- ============================================================
 -- Shared value tables
 -- ============================================================
@@ -498,6 +499,162 @@ end
 -- ============================================================
 -- Build Shared Media → Sounds args
 -- ============================================================
+-- ============================================================
+-- Build Priority Spells args
+-- ============================================================
+local function BuildPrioritySpellsArgs()
+	local args = {}
+	local db = NS.db
+	if not db then return args end
+
+	args.generalGroup = {
+		type = "group",
+		name = "General",
+		inline = true,
+		order = 1,
+		args = {
+			desc = {
+				type = "description",
+				name = "Spells in this list always fire a sound alert when they fail, "
+						.. "bypassing post-cast suppression, throttle, fail reason filters, "
+						.. "condition suppressions, and the ignore list. "
+						.. "Useful for spells you notice you miss and need a distinct reminder to recast.",
+				order = 1,
+				width = "full",
+				fontSize = "medium",
+			},
+			spacer0 = { type = "description", name = "", order = 2, width = "full" },
+			enabled = {
+				type = "toggle",
+				name = "Enable Priority Spells",
+				order = 3,
+				width = 1.5,
+				get = function() return db.soundAlerts.prioritySpells.enabled end,
+				set = function(_, v) db.soundAlerts.prioritySpells.enabled = v end,
+				disabled = function() return not db.soundAlerts.enabled end,
+			},
+			channel = {
+				type = "select",
+				name = "Sound Channel",
+				desc = "Audio channel used for priority spell fail sounds.",
+				order = 4,
+				width = 1,
+				values = CHANNEL_VALUES,
+				get = function() return db.soundAlerts.prioritySpells.channel end,
+				set = function(_, v) db.soundAlerts.prioritySpells.channel = v end,
+				disabled = function()
+					return not db.soundAlerts.enabled or not db.soundAlerts.prioritySpells.enabled
+				end,
+			},
+			edit = {
+				type = "execute",
+				name = function()
+					local n = CountPool("prioritySounds")
+					return "Edit Sounds (" .. n .. ")"
+				end,
+				order = 5,
+				width = 0.8,
+				func = function() NS.OpenSoundPicker("prioritySounds", "Priority Spell Sounds") end,
+				disabled = function()
+					return not db.soundAlerts.enabled or not db.soundAlerts.prioritySpells.enabled
+				end,
+			},
+		},
+	}
+	args.addGroup = {
+		type = "group",
+		name = "Add Spell",
+		inline = true,
+		order = 2,
+		args = {
+			desc = {
+				type = "description",
+				name = "Enter a spell ID to always alert when it fails, regardless of other settings. "
+						.. "Find spell IDs on Wowhead.",
+				order = 1,
+				width = "full",
+				fontSize = "medium",
+			},
+			spellInput = {
+				type = "input",
+				name = "Spell ID",
+				order = 2,
+				width = 1,
+				get = function() return pendingPrioritySpellID end,
+				set = function(_, v) pendingPrioritySpellID = v end,
+				disabled = function() return not db.soundAlerts.enabled end,
+			},
+			addBtn = {
+				type = "execute",
+				name = "Add",
+				order = 3,
+				width = 0.5,
+				func = function()
+					local id = tonumber(pendingPrioritySpellID)
+					if not id then
+						NS.Msg("Invalid spell ID.")
+						return
+					end
+
+					db.soundAlerts.prioritySpells.spells[id] = true
+					local name = C_Spell.GetSpellName(id) or "Unknown"
+					NS.Msg(name .. " (" .. id .. ") added to priority list.")
+					pendingPrioritySpellID = ""
+					LibStub("AceConfigRegistry-3.0"):NotifyChange(ADDON_NAME)
+				end,
+				disabled = function() return not db.soundAlerts.enabled end,
+			},
+		},
+	}
+	local listArgs = {}
+	local order = 1
+	local hasAny = false
+	for spellID in pairs(db.soundAlerts.prioritySpells.spells) do
+		hasAny = true
+		local name = C_Spell.GetSpellName(spellID) or "Unknown"
+		local capturedID = spellID
+		local key = "spell_" .. spellID
+		listArgs[key] = {
+			type = "description",
+			name = "|cFFFFD100" .. name .. "|r  |cFF888888(" .. spellID .. ")|r",
+			order = order,
+			width = 2.4,
+			fontSize = "medium",
+		}
+		order = order + 1
+		listArgs[key .. "_rm"] = {
+			type = "execute",
+			name = "Remove",
+			order = order,
+			width = 0.6,
+			func = function()
+				db.soundAlerts.prioritySpells.spells[capturedID] = nil
+				LibStub("AceConfigRegistry-3.0"):NotifyChange(ADDON_NAME)
+			end,
+			disabled = function() return not db.soundAlerts.enabled end,
+		}
+		order = order + 1
+	end
+
+	if not hasAny then
+		listArgs.empty = {
+			type = "description",
+			name = "|cFF888888No priority spells configured.|r",
+			order = 1,
+			fontSize = "medium",
+		}
+	end
+
+	args.listGroup = {
+		type = "group",
+		name = "Priority Spells",
+		inline = true,
+		order = 3,
+		args = listArgs,
+	}
+	return args
+end
+
 local VOICE_PACK_KEYS = { voice_f1 = true, voice_m1 = true }
 -- voiceOnly: true = voice packs only, false = SFX packs only, nil = all
 local function BuildSharedMediaSoundsArgs(voiceOnly)
@@ -1070,6 +1227,13 @@ local function BuildOptionsTable()
 								},
 							},
 						},
+					},
+
+					prioritySpells = {
+						type = "group",
+						name = "Priority Spells",
+						order = 6,
+						args = BuildPrioritySpellsArgs(),
 					},
 
 					ignoreList = {
