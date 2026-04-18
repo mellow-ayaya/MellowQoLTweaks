@@ -517,7 +517,9 @@ local function IsConditionSuppressed()
 
 	if sc.inVehicle and UnitInVehicle("player") then return true end
 
-	if sc.overrideBar and C_ActionBar.HasOverrideActionBar() then return true end -- NEW
+	if sc.overrideBar and C_ActionBar.HasOverrideActionBar() then return true end
+
+	if sc.channeling and UnitChannelInfo("player") then return true end
 
 	return false
 end

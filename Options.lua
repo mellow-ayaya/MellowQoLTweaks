@@ -968,6 +968,16 @@ local function BuildOptionsTable()
 										set = function(_, v) db.soundAlerts.suppressConditions.overrideBar = v end,
 										disabled = function() return not db.soundAlerts.enabled end,
 									},
+									channeling = {
+										type = "toggle",
+										name = "Channeling",
+										desc = "Suppress alerts while you are actively channeling a spell.",
+										order = 8,
+										width = 1,
+										get = function() return db.soundAlerts.suppressConditions.channeling end,
+										set = function(_, v) db.soundAlerts.suppressConditions.channeling = v end,
+										disabled = function() return not db.soundAlerts.enabled end,
+									},
 								},
 							},
 							smartResourceGroup = {

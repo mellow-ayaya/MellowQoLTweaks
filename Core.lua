@@ -257,6 +257,7 @@ local DEFAULTS = {
 			mounted = false,
 			inVehicle = true,
 			overrideBar = true,
+			channeling = true,
 		},
 	},
 	floatingText = {
