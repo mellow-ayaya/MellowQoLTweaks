@@ -1,3 +1,6 @@
+# 1.1.1 - 2026.04.22
+- TOC update
+
 # 1.1.0 - 2026.04.18
 - Added a new feature in Sound Alerts: Priority spells. Spell IDs can be added here for spells you want to always be notified about regardless of spell cast failure reason and throttling or any other settings. Meant to be used for important spells or spells that you notice you often fail to cast.
 - Added a new option in Spell Alerts -> General -> Supress Alerts: Channeling.

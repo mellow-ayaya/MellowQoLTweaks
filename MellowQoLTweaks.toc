@@ -1,7 +1,7 @@
-## Interface: 120001
+## Interface: 120005
 ## Title: Mellow |cFF00FFFFQoL|r Tweaks
 ## Author: mellow_ayaya
-## Version: 1.1.0
+## Version: 1.1.1
 ## IconTexture: Interface\AddOns\MellowQoLTweaks\icon.tga
 ## Notes: A collection of QoL tweaks for WoW: AFK auto-mute, UI scale lock, and cast fail/interrupt sound alerts.
 ## SavedVariables: MellowQoLTweaksDB
